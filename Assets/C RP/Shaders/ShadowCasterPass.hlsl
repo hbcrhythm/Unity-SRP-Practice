@@ -1,16 +1,16 @@
 #ifndef CUSTOM_SHADOW_CASTER_PASS_INCLUDED
 #define CUSTOM_SHADOW_CASTER_PASS_INCLUDED
 
-#include "../ShaderLibrary/Common.hlsl"
+// #include "../ShaderLibrary/Common.hlsl"
 
-TEXTURE2D(_BaseMap);
-SAMPLER(sampler_BaseMap);
+// TEXTURE2D(_BaseMap);
+// SAMPLER(sampler_BaseMap);
 
-UNITY_INSTANCING_BUFFER_START(UnityPerMaterial)
-	UNITY_DEFINE_INSTANCED_PROP(float4, _BaseMap_ST)
-	UNITY_DEFINE_INSTANCED_PROP(float4, _BaseColor)
-	UNITY_DEFINE_INSTANCED_PROP(float, _Cutoff)
-UNITY_INSTANCING_BUFFER_END(UnityPerMaterial)
+// UNITY_INSTANCING_BUFFER_START(UnityPerMaterial)
+// 	UNITY_DEFINE_INSTANCED_PROP(float4, _BaseMap_ST)
+// 	UNITY_DEFINE_INSTANCED_PROP(float4, _BaseColor)
+// 	UNITY_DEFINE_INSTANCED_PROP(float, _Cutoff)
+// UNITY_INSTANCING_BUFFER_END(UnityPerMaterial)
 
 struct Attributes {
 	float3 positionOS : POSITION;
@@ -32,6 +32,14 @@ Varyings ShadowCasterPassVertex(Attributes input)
 	float3 positionWS = TransformObjectToWorld(input.positionOS);
 	output.positionCS = TransformWorldToHClip(positionWS);
 
+	//在 DX11/12、PS4、XboxOne 和 Metal 中，Z 缓冲区范围是 1 到 0，并定义了 UNITY_REVERSED_Z。在其他平台上，范围是 0 到 1。
+	//解决Shadow PanCaking
+	#if UNITY_REVERSED_Z
+		output.positionCS.z = min(output.positionCS.z, output.positionCS.w * UNITY_NEAR_CLIP_VALUE);
+	#else
+		output.positionCS.z = max(output.positionCS.z, output.positionCS.w * UNITY_NEAR_CLIP_VALUE);
+	#endif
+
 	float4 baseST = UNITY_ACCESS_INSTANCED_PROP(UnityPerMaterial, _BaseMap_ST);
 	output.baseUV = input.baseUV * baseST.xy + baseST.zw;
 
@@ -44,8 +52,11 @@ void ShadowCasterPassFragment(Varyings input)
 	float4 baseMap = SAMPLE_TEXTURE2D(_BaseMap, sampler_BaseMap, input.baseUV);
 	float4 baseColor = UNITY_ACCESS_INSTANCED_PROP(UnityPerMaterial, _BaseColor);
 	float4 base = baseMap * baseColor;
-	#if defined(_CLIPPING)
+	#if defined(_SHADOWS_CLIP)
 		clip(base.a - UNITY_ACCESS_INSTANCED_PROP(UnityPerMaterial, _Cutoff));
+	#elif defined(_SHADOWS_DITHER)
+		float dither = InterleavedGradientNoise(input.positionCS.xy, 0);
+		clip(base.a - dither);
 	#endif
 }
 

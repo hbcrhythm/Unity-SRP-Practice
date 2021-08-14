@@ -25,4 +25,3 @@ class CustomRenderPipeline : RenderPipeline
         }
     }
 }
-

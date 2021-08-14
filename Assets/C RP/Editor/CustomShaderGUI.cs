@@ -28,6 +28,19 @@ public class CustomShaderGUI : ShaderGUI
         set => SetProperty("_DstBlend", (float)value);
     }
 
+    enum ShadowMode { 
+        On, Clip, Dither, Off
+    }
+
+    ShadowMode Shadows {
+        set {
+            if (SetProperty("_Shadows", (float)value)) {
+                SetKeyworld("_SHADOWS_CLIP", value == ShadowMode.Clip);
+                SetKeyworld("_SHADOWS_DITHER", value == ShadowMode.Dither);
+            }
+        }
+    }
+
     bool ZWrite {
         set => SetProperty("_ZWrite", value ? 1f : 0f);
     }
@@ -40,12 +53,26 @@ public class CustomShaderGUI : ShaderGUI
         }
     }
 
+    void SetShadowCasterPass() {
+        MaterialProperty shadows = FindProperty("_Shadows", properties, false);
+        if (shadows == null || shadows.hasMixedValue) {
+            return;
+        }
+        bool enabled = shadows.floatValue < (float)ShadowMode.Off;
+        foreach (Material m in materials) {
+            m.SetShaderPassEnabled("ShadowCaster", enabled);
+        }
+    }
+
     public override void OnGUI(MaterialEditor materialEditor, MaterialProperty[] properties)
     {
+        EditorGUI.BeginChangeCheck();
         base.OnGUI(materialEditor, properties);
         editor = materialEditor;
         materials = materialEditor.targets;
         this.properties = properties;
+
+        BackedEmission();
 
         EditorGUILayout.Space();
 
@@ -57,8 +84,43 @@ public class CustomShaderGUI : ShaderGUI
             FadePreset();
             TransparentPreset();
         }
+
+        if (EditorGUI.EndChangeCheck())
+        {
+            SetShadowCasterPass();
+        }
+
     }
 
+    // 透明物体的烘焙
+    void CopyLightMappingProperties() {
+        MaterialProperty mainTex = FindProperty("_MainTex", properties, false);
+        MaterialProperty baseMap = FindProperty("_BaseMap", properties, false);
+
+        if (mainTex != null && baseMap != null) {
+            mainTex.textureValue = baseMap.textureValue;
+            mainTex.textureScaleAndOffset = baseMap.textureScaleAndOffset;
+        }
+
+        MaterialProperty color = FindProperty("_Color", properties, false);
+        MaterialProperty baseColor = FindProperty("_BaseColor", properties, false);
+
+        if (color != null && baseColor != null) {
+            color.colorValue = baseColor.colorValue;
+        }
+
+    }
+
+    //设置烘焙自发光，将自发光烘焙到光照贴图和光照探针中
+    void BackedEmission() {
+        EditorGUI.BeginChangeCheck();
+        editor.LightmapEmissionProperty();
+        if (EditorGUI.EndChangeCheck()) {
+            foreach (Material m in editor.targets) {
+                m.globalIlluminationFlags &= ~MaterialGlobalIlluminationFlags.EmissiveIsBlack;
+            }
+        }
+    }
 
     void OpaquePreset()
     {

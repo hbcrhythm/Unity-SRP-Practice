@@ -6,6 +6,24 @@ CBUFFER_START(UnityPerDraw)
 	float4x4 unity_WorldToObject;
 	float4 unity_LODFade;
 	real4 unity_WorldTransformParams;
+
+	float4 unity_LightmapST;	//及时被弃用，也要添加，防止srp被中断
+	float4 unity_DynamicLightmapST;
+
+	float4 unity_SHAr;
+	float4 unity_SHAg;
+	float4 unity_SHAb;
+	float4 unity_SHBr;
+	float4 unity_SHBg;
+	float4 unity_SHBb;
+	float4 unity_SHC;
+
+	//LightProbe LPPV
+	float4 unity_ProbeVolumeParams;
+	float4x4 unity_ProbeVolumeWorldToObject;
+	float4 unity_ProbeVolumeSizeInv;
+	float4 unity_ProbeVolumeMin;
+
 CBUFFER_END
 
 float4x4 unity_MatrixV;
