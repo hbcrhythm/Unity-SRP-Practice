@@ -14,6 +14,9 @@ public class MeshCube : MonoBehaviour
     [SerializeField]
     Material material = null;
 
+    [SerializeField]
+    LightProbeProxyVolume lightProbeVolume = null;
+
     float[]
         metallic = new float[1023],
         smoothness = new float[1023];
@@ -44,7 +47,20 @@ public class MeshCube : MonoBehaviour
             block.SetVectorArray(baseColorId, baseColors);
             block.SetFloatArray(metallicId, metallic);
             block.SetFloatArray(smoothnessId, smoothness);
+
+            if (!lightProbeVolume) {
+                var positons = new Vector3[1023];
+                for (int i = 0; i < matrices.Length; i++) {
+                    positons[i] = matrices[i].GetColumn(3);
+                }
+                var lightProbes = new SphericalHarmonicsL2[1023];
+                var occlusionProbes = new Vector4[1023];
+
+                LightProbes.CalculateInterpolatedLightAndOcclusionProbes(positons, lightProbes, occlusionProbes);
+                block.CopySHCoefficientArraysFrom(lightProbes);
+                block.CopyProbeOcclusionArrayFrom(occlusionProbes);
+            }
         }
-        Graphics.DrawMeshInstanced(mesh, 0, material, matrices, 1023, block, ShadowCastingMode.On, true, 0, null, LightProbeUsage.CustomProvided);
+        Graphics.DrawMeshInstanced(mesh, 0, material, matrices, 1023, block, ShadowCastingMode.On, true, 0, null, lightProbeVolume? LightProbeUsage.UseProxyVolume: LightProbeUsage.CustomProvided, lightProbeVolume);
     }
 }
