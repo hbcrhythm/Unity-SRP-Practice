@@ -30,16 +30,24 @@ CBUFFER_START(_CustomShadows)
 	float4 _ShadowDistanceFade;
 CBUFFER_END
 
+struct ShadowMask{
+	bool always;
+	bool distance;
+	float4 shadows;
+};
+
 struct ShadowData {
 	int cascadeIndex;
 	float cascadeBlend;
 	float strength;
+	ShadowMask shadowMask;
 };
 
 struct DirectionalShadowData {
 	float strength;
 	int tileIndex;
 	float normalBias;
+	int shadowMaskChannel;
 };
 
 // (1 - d/m)/f  d表面深度 m最大距离 f过渡范围
@@ -50,6 +58,9 @@ float FadedShadowStrength(float distance, float scale, float fade) {
 ShadowData GetShadowData(Surface surfaceWS) {
 	ShadowData data;
 	// data.strength = surfaceWS.depth < _ShadowDistance ? 1.0 : 0.0;
+	data.shadowMask.always = false;
+	data.shadowMask.distance = false;
+	data.shadowMask.shadows = 1.0;
 	data.cascadeBlend = 1.0;
 	data.strength = FadedShadowStrength(surfaceWS.depth, _ShadowDistanceFade.x, _ShadowDistanceFade.y);
 	int i;
@@ -114,17 +125,8 @@ float FilterDirectionalShadow(float3 positionSTS){
 	#endif
 }
 
-//决定有多少光达到表面的因素, 返回衰减系数，不衰减为1 衰减的话 为相应的值。
-float GetDirectionalShadowAttenuation(DirectionalShadowData directional, ShadowData global, Surface surfaceWS){
-
-	#if !defined(_RECEIVE_SHADOWS)
-		return 1.0;
-	#endif
-
-	if(directional.strength <= 0.0){
-		return 1.0;
-	}
-
+//实时阴影
+float GetCascadedShadow(DirectionalShadowData directional, ShadowData global, Surface surfaceWS){
 	float3 normalBias = surfaceWS.normal * (directional.normalBias * _CascadeData[global.cascadeIndex].y);
 
 	float3 positionSTS = mul(_DirectionalShadowMatrices[directional.tileIndex], float4(surfaceWS.position + normalBias, 1.0)).xyz;
@@ -137,7 +139,81 @@ float GetDirectionalShadowAttenuation(DirectionalShadowData directional, ShadowD
 		positionSTS = mul(_DirectionalShadowMatrices[directional.tileIndex + 1], float4(surfaceWS.position + normalBias, 1.0)).xyz;
 		shadow = lerp(FilterDirectionalShadow(positionSTS), shadow, global.cascadeBlend);
 	}
-	return lerp(1.0, shadow, directional.strength);
+	shadow = lerp(1.0, shadow, directional.strength);
+
+	return shadow;
 }
+
+//烘焙阴影
+float GetBakedShadow(ShadowMask mask, int channel){
+	float shadow = 1.0;
+	if(mask.always || mask.distance){
+		if(channel >= 0){
+			// shadow = mask.shadows.r;
+			shadow = mask.shadows[channel];
+		}
+	}
+	return shadow;
+}
+
+float GetBakedShadow(ShadowMask mask, int channel, float strength){
+	if(mask.always || mask.distance){
+		return lerp(1.0, GetBakedShadow(mask, channel), strength);
+	}
+	return 1.0;
+}
+
+float MixBakedAndRealtimeShaows(ShadowData global, float shadow, int shadowMaskChannel, float strength){
+	float baked = GetBakedShadow(global.shadowMask, shadowMaskChannel);
+	
+	if(global.shadowMask.always){
+		//此模式unity会将静态物体的实时阴影替换为烘焙阴影(既实时渲染ShadowMask的时候,不渲染静态物体)。可以查看 _DirectionalShadowAtlas发现差异
+		shadow = lerp(1.0, shadow, global.strength);
+		shadow = min(baked, shadow);
+		return lerp(1.0, shadow, strength);
+	}
+	if(global.shadowMask.distance){
+		//先根据阴影贴图的强度做插值，然后再根据灯光的阴影强度做插值
+		shadow = lerp(baked, shadow, global.strength);
+		return lerp(1.0, shadow, strength);
+	}
+	return lerp(1.0, shadow, strength * global.strength);
+}
+
+//决定有多少光达到表面的因素, 返回衰减系数，不衰减为1 衰减的话 为相应的值。
+float GetDirectionalShadowAttenuation(DirectionalShadowData directional, ShadowData global, Surface surfaceWS){
+
+	#if !defined(_RECEIVE_SHADOWS)
+		return 1.0;
+	#endif
+
+	float shadow;
+	if(directional.strength * global.strength <= 0.0){
+		// shadow = 1.0;
+		shadow = GetBakedShadow(global.shadowMask, directional.shadowMaskChannel, abs(directional.strength));
+	}else{
+		shadow = GetCascadedShadow(directional, global, surfaceWS);
+		// shadow = lerp(1.0, Shadow, directional.strength);
+		shadow = MixBakedAndRealtimeShaows(global, shadow, directional.shadowMaskChannel, directional.strength);
+	}
+
+	return shadow;
+
+	// float3 normalBias = surfaceWS.normal * (directional.normalBias * _CascadeData[global.cascadeIndex].y);
+
+	// float3 positionSTS = mul(_DirectionalShadowMatrices[directional.tileIndex], float4(surfaceWS.position + normalBias, 1.0)).xyz;
+	// float shadow = FilterDirectionalShadow(positionSTS);
+
+	// //	如果级联混合小于1 代表在级联层级过渡区域中，必须从下一个级联中采样，并在两个值之前进行插值, 使级联间的阴影平滑过渡
+	// if (global.cascadeBlend < 1.0)
+	// {
+	// 	normalBias = surfaceWS.normal * (directional.normalBias * _CascadeData[global.cascadeIndex + 1].y);
+	// 	positionSTS = mul(_DirectionalShadowMatrices[directional.tileIndex + 1], float4(surfaceWS.position + normalBias, 1.0)).xyz;
+	// 	shadow = lerp(FilterDirectionalShadow(positionSTS), shadow, global.cascadeBlend);
+	// }
+	// return lerp(1.0, shadow, directional.strength);
+}
+
+
 
 #endif
