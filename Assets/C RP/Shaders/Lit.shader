@@ -22,7 +22,7 @@ Shader "C RP/Lit"
 
         [HideInInspector] _MainTex("Texture for LightMap", 2D) = "white" {}
         [HideInInspector] _Color("Color for LightMap", Color) = (0.5, 0.5, 0.5, 1.0)
-        
+
     }
     SubShader
     {
@@ -48,6 +48,7 @@ Shader "C RP/Lit"
             #pragma multi_compile_instancing
             #pragma multi_compile _ _DIRECTIONAL_PCF3 _DIRECTIONAL_PCF5 _DIRECTIONAL_PCF7
             #pragma multi_compile _ _CASCADE_BLEND_SOFT _CASCADE_BLEND_DITHER
+            #pragma multi_compile _ _SHADOW_MASK_ALWAYS _SHADOW_MASK_DISTANCE
             #pragma multi_compile _ LIGHTMAP_ON
             #pragma vertex LitPassVertex
             #pragma fragment LitPassFragment
