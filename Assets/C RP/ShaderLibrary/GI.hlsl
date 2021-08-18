@@ -2,6 +2,7 @@
 #define CUSTOM_GI_INCLUDED
 
 #include "Packages/com.unity.render-pipelines.core/ShaderLibrary/EntityLighting.hlsl"
+#include "Packages/com.unity.render-pipelines.core/ShaderLibrary/ImageBasedLighting.hlsl"
 
 TEXTURE2D(unity_Lightmap);
 SAMPLER(samplerunity_Lightmap);
@@ -11,6 +12,10 @@ SAMPLER(samplerunity_ProbeVolumeSH);
 
 TEXTURE2D(unity_ShadowMask);
 SAMPLER(samplerunity_ShadowMask);
+
+TEXTURECUBE(unity_SpecCube0);
+SAMPLER(samplerunity_SpecCube0);
+
 
 #if defined(LIGHTMAP_ON)
 	#define GI_ATTRIBUTE_DATA float2 lightMapUV : TEXCOORD1;
@@ -26,8 +31,17 @@ SAMPLER(samplerunity_ShadowMask);
 
 struct GI {
 	float3 diffuse;
+	float3 specular;
 	ShadowMask shadowMask;
 };
+
+//由于粗糙度会散射镜面反射，它不仅会降低其强度，还会使其变得混乱，就好像没有聚焦一样。Unity 通过将环境贴图的模糊版本存储在较低的 mip 级别来近似此效果,而我们可以用感知粗糙度转换MipLevel来做这个
+float3 SampleEnvironment(Surface surfaceWS, BRDF brdf){
+	float3 uvw = reflect(-surfaceWS.viewDirection, surfaceWS.normal);
+	float mip = PerceptualRoughnessToMipmapLevel(brdf.perceptualRoughness);
+	float4 environment = SAMPLE_TEXTURECUBE_LOD(unity_SpecCube0, samplerunity_SpecCube0, uvw, mip);
+	return DecodeHDREnvironment(environment, unity_SpecCube0_HDR);
+}
 
 float3 SampleLightMap(float2 lightMapUV){
 	#if defined(LIGHTMAP_ON)
@@ -78,9 +92,10 @@ float4 SampleBakedShadows(float2 lightMapUV, Surface surfaceWS){
 	#endif
 }
 
-GI GetGI(float2 lightMapUV, Surface surfaceWS) {
+GI GetGI(float2 lightMapUV, Surface surfaceWS, BRDF brdf) {
 	GI gi;
 	gi.diffuse = SampleLightMap(lightMapUV) + SampleLightProbe(surfaceWS);
+	gi.specular = SampleEnvironment(surfaceWS, brdf);
 	gi.shadowMask.always = false;
 	gi.shadowMask.distance = false;
 	gi.shadowMask.shadows = 1.0;
